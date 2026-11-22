@@ -8,3 +8,5 @@ An original song, **"Weighing Every Word"**, sung by a pure-code formant synthes
 - The band (pads, bass, plucks, drums) and the reverb are synthesized too
 
 Open `index.html` in a browser and click or press **Space** to start. **R** restarts.
+
+_Unofficial fan project; not affiliated with or endorsed by Anthropic._

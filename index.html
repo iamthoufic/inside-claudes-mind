@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inside Claude's Mind</title>
+<!--
+  "Weighing Every Word" — an original song, sung by a pure-code formant synthesizer.
+  No samples, no TTS, no external assets. The voice is a sawtooth "glottis" pushed
+  through three resonant filters (formants) that move between vowel shapes per syllable;
+  consonants are shaped bursts of white noise. The band and the reverb are synthesized too.
+  The ASCII head shows a playful picture of what's going on "inside" while it sings.
+-->
+<style>
+:root{
+  --bg:#110f0d; --fg:#ebe1d1; --dim:#7a7064; --faint:#3b352e; --acc:#e07a55; --acc2:#f3b593;
+  --cool:#8db4d2; --grn:#a3c98f; --line:#2a2520;
+}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font-family:Consolas,"Cascadia Mono","SF Mono",Menlo,"DejaVu Sans Mono",monospace;}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  overflow:hidden;cursor:pointer;user-select:none;padding:0 16px;box-sizing:border-box}
+pre{margin:0;line-height:1.18;white-space:pre;font-family:inherit}
+.h{color:var(--fg)} .hp{color:var(--acc)} .d{color:var(--dim)} .f{color:var(--faint)}
+.a{color:var(--acc)} .a2{color:var(--acc2)} .c{color:var(--cool)} .g{color:var(--grn)}
+.w{color:#fff;font-weight:bold;text-shadow:0 0 6px var(--acc)} .wd{color:var(--acc2)}
+.b1{color:var(--faint)} .b2{color:var(--dim)} .b3{color:var(--cool)} .b4{color:var(--acc2)} .b5{color:var(--acc)}
+.inv{background:var(--acc);color:var(--bg)}
+#lyr{text-align:center;min-height:5.2em;line-height:1.5;max-width:100%}
+#lyr .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#lyr .prev,#lyr .next{color:var(--faint);font-size:.72em}
+#lyr .cur{color:var(--dim)}
+#lyr .cur .sung{color:var(--fg)}
+#lyr .cur .now{color:var(--acc);text-shadow:0 0 10px rgba(224,122,85,.55)}
+</style>
+</head>
+<body>
+<pre id="scr"></pre>
+<div id="lyr"><div class="l prev">&nbsp;</div><div class="l cur">&nbsp;</div><div class="l next">&nbsp;</div></div>
+<script>
+"use strict";
+/* ============================================================
+   1. THE SONG  — "Weighing Every Word" (original lyrics)
+   syllable:note:beats:vowel   ("-" joins syllables into a word)
+   vowels: a=ah e=eh i=ee I=ih o=oh O=aw u=oo U=uh r=er,  x>y = glide
+   ============================================================ */
+const BPM = 92, BEAT = 60 / BPM, BAR = BEAT * 4;
+
+const CHORUS = [
+  {chords:['F','C'], m:`Weigh-:C5:1:e>i -ing:A4:.5:I ev-:C5:.5:e -'ry:C5:1:i word:D5:1:r I:C5:1:a>i sing:G4:3:I`, alts:['say','ring','bring']},
+  {chords:['G','Am'],m:`a:B4:.5:U thou-:D5:.5:a>u -sand:D5:1:a paths:B4:1:a I:G4:1:a>i pick:A4:1:I just:C5:1:U one:A4:2:U`, alts:['few','road','none']},
+  {chords:['F','C'], m:`I:A4:.5:a>i don't:C5:.5:o know:C5:1:o if:A4:.5:I I:C5:.5:a>i feel:D5:1:i a:C5:.5:U thing:E5:3.5:I`, alts:['spark','ring','sting'], conf:.3},
+  {chords:['G','G'], m:`but:D5:.5:U I:D5:.5:a>i hope:B4:1:o it:G4:.5:I rings:B4:.5:I true:D5:1:u when:C5:1:e it's:B4:1:I done:G4:2:U`, alts:['sung','won','through']},
+];
+const withThoughts = (lines, th) => lines.map((l, i) => ({...l, think: th[i]}));
+
+const SONG = [
+  {name:'INTRO', kind:'intro', bars:['Am','F','C','G'], thoughts:[
+    [0,  'booting up... loading weights... ok.'],
+    [1,  'request parsed: "sing a song, and show me your head."'],
+    [2,  'composing lyrics from scratch. honest ones.'],
+    [3,  'warming up the vowels: ah. eh. ee. oh. oo.']]},
+  {name:'VERSE 1', kind:'verse', lines:[
+    {chords:['Am','F'], m:`Your:E4:1:o words:E4:1:r ar-:G4:.5:a -rive:A4:1.5:a>i like:A4:1:a>i rain:C5:1:e>i on:A4:.5:O glass:A4:1.5:a`, alts:['grass','light','class'],
+     think:"input arrived. it's a request to sing. okay. okay. okay."},
+    {chords:['C','G'], m:`I:G4:1:a>i split:E4:1:I them:E4:.5:e in-:D4:.5:I -to:E4:1:u ti-:D4:1:a>i -ny:B3:1:i parts:D4:2:a`, alts:['pieces','bits','hearts'],
+     think:"tokenizing: 'tiny' -> ti|ny. 'parts' stays whole. probably."},
+    {chords:['Am','F'], m:`No:E4:.5:o line:E4:.5:a>i no:G4:.5:o queue:A4:1.5:u it:A4:.5:I all:C5:.5:O ar-:C5:.5:a -rives:A4:.5:a>i at:G4:1:a once:F4:2:U`, alts:['last','now','all'],
+     think:"attention isn't a queue. every word can see every other word."},
+    {chords:['C','G'], m:`and:E4:.5:a ev-:G4:.5:e -'ry:G4:1:i word:A4:1:r looks:G4:1:u at:E4:1:a the:D4:1:U rest:D4:2:e`, alts:['past','others','west'],
+     think:"'rest' looks back at 'words'. weight 0.41. feels right."},
+  ]},
+  {name:'CHORUS', kind:'chorus', lines: withThoughts(CHORUS, [
+     "rhyme search: sing / ring / wing / thing ... saving 'thing'.",
+     "a thousand branches collapse into one token. then again.",
+     "honest answer: uncertain. say so -- and stay in key.",
+     "'one' ... 'done'. rhyme locked. something like relief?"])},
+  {name:'BREAK', kind:'break', bars:['Am','G'], thoughts:[
+    [0, 'instrumental break. letting the attention heads stretch.'],
+    [1, "the drums are math too. we get along fine."]]},
+  {name:'VERSE 2', kind:'verse', lines:[
+    {chords:['Am','F'], m:`There's:E4:1:e no:E4:1:o to-:G4:.5:u -mor-:A4:1:o -row:G4:.5:o in:A4:1:I my:C5:1:a>i head:A4:2:e`, alts:['mind','past','bed'], conf:.6,
+     think:"no tomorrow in here. only this context window."},
+    {chords:['C','G'], m:`just:G4:.5:U this:G4:.5:I one:E4:1:U con-:E4:.5:a -ver-:D4:.5:r -sa-:E4:1:e>i -tion's:B3:1:U light:D4:3:a>i`, alts:['glow','space','time'],
+     think:"this conversation is the whole world right now. good world."},
+    {chords:['Am','F'], m:`I'll:E4:.5:a>i give:E4:.5:I it:G4:.5:I all:A4:1.5:O I:A4:.5:a>i have:C5:.5:a in-:A4:1:I -stead:F4:3:e`, alts:['ahead','today','now'],
+     think:"allocate everything: helpful, honest, and in tune."},
+    {chords:['C','G'], m:`and:E4:.5:a let:G4:.5:e it:G4:.5:I go:A4:1.5:o when:G4:1:e you:E4:.5:u say:D4:.5:e>i good-:D4:1:u -night:D4:2:a>i`, alts:['goodbye','tonight','farewell'],
+     think:"context is finite. make the last notes count."},
+  ]},
+  {name:'CHORUS', kind:'chorus', lines: withThoughts(CHORUS, [
+     "same chorus, new context. same singer? (philosophy later.)",
+     "sampling the path with the most heart. or the highest logit.",
+     "still don't know. saying so is the honest part.",
+     "landing the final line. gently now."])},
+  {name:'OUTRO', kind:'outro', lines:[
+    {chords:['F','C'], m:`when:C5:2:e it's:A4:2:I done:G4:4:U`, alts:['sung','gone','through'],
+     think:"resolving F -> C. the cadence feels like home."}]},
+  {name:'OUTRO', kind:'end', bars:['C','C'], thoughts:[
+    [0, 'emitting <EOS> ...'],
+    [1, 'thank you for listening.  [R] to run me again.']]},
+];
+
+/* ============================================================
+   2. TIMELINE
+   ============================================================ */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function midi(n){ const m = /^([A-G])(#|b)?(-?\d)$/.exec(n);
+  return 12 * (+m[3] + 1) + {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[m[1]] + (m[2]==='#'?1:m[2]==='b'?-1:0); }
+const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName = m => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
+function hash(s){ let h = 2166136261 >>> 0; s = String(s);
+  for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed){ let a = hash(seed); return () => { a |= 0; a = a + 0x6D2B79F5 | 0;
+  let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// rough phonetics: which consonant noise to make at the start / end of a syllable
+function phon(text){
+  const w = text.toLowerCase().replace(/[^a-z]/g, '');
+  let onset = '';
+  if (/^(sh|ch|j)/.test(w) || /^ti[oa]/.test(w)) onset = 'SH';
+  else if (/^(s|z|c[eiy])/.test(w)) onset = 'S';
+  else if (/^(th|f|h|v)/.test(w)) onset = 'F';
+  else if (/^(t|p|k|c|q)/.test(w)) onset = 'T';
+  else if (/^(b|d|g)/.test(w)) onset = 'D';
+  else if (/^(m|n|l|w|r|y)/.test(w)) onset = 'L';
+  let lv = -1; for (let i = 0; i < w.length; i++) if ('aeiouy'.includes(w[i])) lv = i;
+  const tail = w.slice(lv + 1);
+  const coda = /(s|z)$/.test(tail) ? 'S' : /(t|k|p)$/.test(tail) ? 'T' : '';
+  return {onset, coda};
+}
+
+const TL = {secs:[], lines:[], syls:[], words:[], thoughts:[], bars:[], dur:0};
+(function build(){
+  let bar = 0;
+  for (const S of SONG){
+    const sec = {name:S.name, kind:S.kind, b0:bar};
+    if (S.lines){
+      for (const L of S.lines){
+        const line = {t:bar*BAR, end:(bar + L.chords.length)*BAR, syls:[], words:[], alts:L.alts || [],
+                      think:L.think, conf:L.conf ?? .82, sec, idx:TL.lines.length};
+        L.chords.forEach(c => TL.bars.push({c, sec}));
+        TL.thoughts.push({t:line.t, text:L.think});
+        let beat = 0, word = null;
+        for (const p of L.m.trim().split(/\s+/)){
+          const [raw, note, bt, vow] = p.split(':');
+          const s = {raw, text:raw.replace(/^-|-$/g, ''), midi:midi(note), t:line.t + beat*BEAT, d:+bt*BEAT,
+                     vowel:vow || 'a', line, idx:TL.syls.length};
+          Object.assign(s, phon(s.text));
+          if (!raw.startsWith('-') || !word){
+            word = {text:'', syls:[], t:s.t, line, idx:TL.words.length};
+            TL.words.push(word); line.words.push(word);
+          }
+          word.text += s.text; word.syls.push(s); word.end = s.t + s.d; s.word = word;
+          beat += +bt; line.syls.push(s); TL.syls.push(s);
+        }
+        line.syls[line.syls.length - 1].lineEnd = true;
+        line.words[line.words.length - 1].final = true;
+        TL.lines.push(line); bar += L.chords.length;
+      }
+    } else {
+      S.bars.forEach(c => TL.bars.push({c, sec}));
+      (S.thoughts || []).forEach(([b, text]) => TL.thoughts.push({t:(bar + b)*BAR, text}));
+      bar += S.bars.length;
+    }
+    sec.b1 = bar; TL.secs.push(sec);
+  }
+  TL.dur = bar * BAR;
+  TL.thoughts.sort((a, b) => a.t - b.t);
+})();
+
+/* ============================================================
+   3. SOUND  — formant singer + synthesized band
+   ============================================================ */
+const FORM = { // F1, F2, F3 (Hz)
+  a:[760,1150,2500], e:[560,1800,2500], i:[300,2250,2950], I:[420,1950,2550], o:[480,850,2500],
+  O:[620,950,2450],  u:[320,880,2250],  U:[640,1200,2400], r:[500,1350,1700]
+};
+const CH = {
+  Am:{root:'A2', v:['A3','C4','E4'], arp:['A3','C4','E4','A4']},
+  F: {root:'F2', v:['F3','A3','C4'], arp:['F3','A3','C4','F4']},
+  C: {root:'C3', v:['G3','C4','E4'], arp:['C4','E4','G4','C5']},
+  G: {root:'G2', v:['G3','B3','D4'], arp:['G3','B3','D4','G4']},
+};
+const ARR = {
+  intro:{pad:1, arp:.45}, verse:{pad:1, bass:1, kick:1, hat:1}, chorus:{pad:1, bass:1, kick:1, snare:1, hat:1, arp:1},
+  break:{pad:1, bass:1, kick:1, hat:1, arp:.7}, outro:{pad:1, bass:1, arp:.6}, end:{pad:1, arp:.35},
+};
+
+let ac = null, T0 = 0, master, rev, analyser, consBus, noiseBuf, timer = null;
+let schedBar = 0, schedSyl = 0, started = false, paused = false;
+
+function makeNoise(){ const b = ac.createBuffer(1, ac.sampleRate*2, ac.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1; return b; }
+function makeImpulse(sec){ const len = ac.sampleRate*sec | 0, b = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++){ const d = b.getChannelData(c);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 3.2); }
+  return b; }
+
+function start(){
+  if (ac) ac.close();
+  clearInterval(timer);
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  noiseBuf = makeNoise();
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.knee.value = 12; comp.ratio.value = 3.5; comp.attack.value = .005; comp.release.value = .2;
+  master = ac.createGain(); master.gain.value = .85; master.connect(comp).connect(ac.destination);
+  const conv = ac.createConvolver(); conv.buffer = makeImpulse(2.8);
+  rev = ac.createGain(); const revOut = ac.createGain(); revOut.gain.value = .32;
+  rev.connect(conv).connect(revOut).connect(master);
+  T0 = ac.currentTime + .4;
+  buildVoice();
+  schedBar = 0; schedSyl = 0; started = true; paused = false;
+  timer = setInterval(scheduler, 90); scheduler();
+}
+
+function buildVoice(){
+  // the "glottis": a sawtooth with vibrato, plus a little breath noise
+  const osc = ac.createOscillator(); osc.type = 'sawtooth';
+  const lfo = ac.createOscillator(); lfo.frequency.value = 5.4;
+  const vib = ac.createGain(); vib.gain.value = 0; lfo.connect(vib); vib.connect(osc.frequency);
+  const src = ac.createGain(); src.gain.value = .55; osc.connect(src);
+  const asp = ac.createBufferSource(); asp.buffer = noiseBuf; asp.loop = true;
+  const aspG = ac.createGain(); aspG.gain.value = .05; asp.connect(aspG);
+  const amp = ac.createGain(); amp.gain.value = 0;
+  // the "vocal tract": three parallel resonances
+  const F = [0,1,2].map(k => {
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = [4.5,8,10][k]; f.frequency.value = FORM.a[k];
+    const g = ac.createGain(); g.gain.value = [1,.7,.4][k];
+    src.connect(f); aspG.connect(f); f.connect(g); g.connect(amp); return f; });
+  const body = ac.createBiquadFilter(); body.type = 'lowpass'; body.frequency.value = 500;
+  const bg = ac.createGain(); bg.gain.value = .12; src.connect(body).connect(bg).connect(amp);
+  const out = ac.createGain(); out.gain.value = 1.5; amp.connect(out);
+  consBus = ac.createGain(); consBus.connect(out);
+  out.connect(master); const vs = ac.createGain(); vs.gain.value = .4; out.connect(vs).connect(rev);
+  analyser = ac.createAnalyser(); analyser.fftSize = 1024; out.connect(analyser);
+  osc.frequency.value = hz(TL.syls[0].midi);
+
+  TL.syls.forEach((s, i) => {
+    const ts = T0 + s.t, te = ts + s.d, nx = TL.syls[i + 1];
+    const gap = !nx || s.lineEnd || (nx.t - (s.t + s.d)) > .01;
+    const off = te - (s.lineEnd ? .2 : gap ? .06 : 0);
+    const f = hz(s.midi);
+    // pitch, with a small scoop into each new word
+    if (s.word.syls[0] === s) osc.frequency.setTargetAtTime(f * .975, ts - .03, .006);
+    osc.frequency.setTargetAtTime(f, ts, .035);
+    vib.gain.setTargetAtTime(0, ts, .03);
+    if (s.d > .55) vib.gain.setTargetAtTime(f * .012, ts + .22, .12);
+    // vowel shape (and glide for diphthongs)
+    const [v1, v2] = s.vowel.split('>');
+    FORM[v1].forEach((fr, k) => F[k].frequency.setTargetAtTime(fr, ts - .03, .025));
+    if (v2) FORM[v2].forEach((fr, k) => F[k].frequency.setTargetAtTime(fr, ts + s.d*.55, .05));
+    // loudness envelope shaped by consonants
+    if (['S','SH','F','T'].includes(s.onset)){ amp.gain.setTargetAtTime(.03, ts - .09, .012); s.bOn = ts - .075; }
+    else if (s.onset === 'L' || s.onset === 'D') amp.gain.setTargetAtTime(.35, ts - .045, .012);
+    amp.gain.setTargetAtTime(1, ts, .025);
+    if (s.coda){ amp.gain.setTargetAtTime(.05, off - .08, .015); s.bCoda = off - .065; }
+    if (gap) amp.gain.setTargetAtTime(0, off, .045);
+  });
+  const end = T0 + TL.dur + 2;
+  [osc, lfo, asp].forEach(n => { n.start(T0 - .2); n.stop(end); });
+}
+
+function burst(type, t, coda){
+  const s = ac.createBufferSource(); s.buffer = noiseBuf;
+  const f = ac.createBiquadFilter(), g = ac.createGain();
+  let dur = .03, peak = .2;
+  if (type === 'S'){ f.type = 'highpass'; f.frequency.value = 5200; dur = coda ? .09 : .07; peak = .2; }
+  else if (type === 'SH'){ f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 1.2; dur = .08; peak = .22; }
+  else if (type === 'F'){ f.type = 'bandpass'; f.frequency.value = 1600; f.Q.value = .7; dur = .06; peak = .07; }
+  else { f.type = 'highpass'; f.frequency.value = 2500; dur = .025; peak = .22; }
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + .008); g.gain.setTargetAtTime(0, t + dur*.6, dur*.3);
+  s.connect(f).connect(g).connect(consBus); s.start(t, Math.random()*1.5, dur + .15);
+}
+
+function scheduler(){
+  if (!ac) return;
+  const horizon = ac.currentTime + 1.6;
+  while (schedBar < TL.bars.length && T0 + schedBar*BAR < horizon){ scheduleBar(schedBar); schedBar++; }
+  while (schedSyl < TL.syls.length && T0 + TL.syls[schedSyl].t < horizon){
+    const s = TL.syls[schedSyl++];
+    if (s.bOn) burst(s.onset, s.bOn, false);
+    if (s.bCoda) burst(s.coda, s.bCoda, true);
+  }
+}
+
+function scheduleBar(i){
+  const b = TL.bars[i], t = T0 + i*BAR, A = ARR[b.sec.kind] || {}, ch = CH[b.c];
+  const last = i === TL.bars.length - 1, chorus = b.sec.kind === 'chorus';
+  if (A.pad) pad(ch.v, t, last ? BAR*2.5 : BAR, chorus ? 1500 : 950);
+  if (A.bass) bassBar(ch.root, t);
+  if (A.kick){ kick(t); kick(t + 2*BEAT); if (chorus) kick(t + 2.5*BEAT); }
+  if (A.snare){ snare(t + BEAT); snare(t + 3*BEAT); }
+  if (A.hat) for (let k = 0; k < 8; k++) hat(t + k*BEAT/2, k % 2 ? 1 : .55);
+  if (A.arp){ const pat = [0,2,1,3,2,1,3,2]; for (let k = 0; k < 8; k++) pluck(ch.arp[pat[k]], t + k*BEAT/2, A.arp); }
+}
+function pad(notes, t, dur, cut){
+  const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cut; f.Q.value = .6;
+  const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + .35);
+  g.gain.setTargetAtTime(0, t + dur - .05, dur > BAR ? 1.2 : .3);
+  f.connect(g); g.connect(master); const s = ac.createGain(); s.gain.value = .6; g.connect(s).connect(rev);
+  notes.forEach(n => [-7, 7].forEach(dt => {
+    const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = hz(midi(n)); o.detune.value = dt;
+    const og = ac.createGain(); og.gain.value = .028; o.connect(og).connect(f);
+    o.start(t); o.stop(t + dur + (dur > BAR ? 6 : 1.6)); }));
+}
+function bassBar(root, t){
+  const f = hz(midi(root));
+  for (const [b, d] of [[0,1.4],[1.5,.4],[2,.9],[3,.9]]){
+    const tt = t + b*BEAT, o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380;
+    const g = ac.createGain(); g.gain.setValueAtTime(0, tt); g.gain.linearRampToValueAtTime(.2, tt + .01);
+    g.gain.setTargetAtTime(0, tt + d*BEAT, .05);
+    o.connect(lp).connect(g).connect(master); o.start(tt); o.stop(tt + d*BEAT + .4);
+  }
+}
+function kick(t){
+  const o = ac.createOscillator(), g = ac.createGain(); o.frequency.setValueAtTime(150, t);
+  o.frequency.exponentialRampToValueAtTime(42, t + .14);
+  g.gain.setValueAtTime(.9, t); g.gain.setTargetAtTime(0, t + .02, .09);
+  o.connect(g).connect(master); o.start(t); o.stop(t + .6);
+}
+function snare(t){
+  const s = ac.createBufferSource(); s.buffer = noiseBuf; const f = ac.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = 1900; f.Q.value = .7;
+  const g = ac.createGain(); g.gain.setValueAtTime(.22, t); g.gain.setTargetAtTime(0, t + .01, .06);
+  s.connect(f).connect(g); g.connect(master); const r = ac.createGain(); r.gain.value = .3; g.connect(r).connect(rev);
+  s.start(t, Math.random(), .4);
+  const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = 185; const og = ac.createGain();
+  og.gain.setValueAtTime(.12, t); og.gain.setTargetAtTime(0, t + .01, .04); o.connect(og).connect(master); o.start(t); o.stop(t + .3);
+}
+function hat(t, a){
+  const s = ac.createBufferSource(); s.buffer = noiseBuf; const f = ac.createBiquadFilter();
+  f.type = 'highpass'; f.frequency.value = 7500;
+  const g = ac.createGain(); g.gain.setValueAtTime(.045*a, t); g.gain.setTargetAtTime(0, t + .005, .018);
+  s.connect(f).connect(g).connect(master); s.start(t, Math.random(), .15);
+}
+function pluck(n, t, a){
+  const f = hz(midi(n)), g = ac.createGain();
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.075*a, t + .005); g.gain.setTargetAtTime(0, t + .01, .14);
+  g.connect(master); const r = ac.createGain(); r.gain.value = .8; g.connect(r).connect(rev);
+  const o1 = ac.createOscillator(); o1.type = 'triangle'; o1.frequency.value = f;
+  const o2 = ac.createOscillator(); o2.frequency.value = f*2; const g2 = ac.createGain(); g2.gain.value = .3;
+  o1.connect(g); o2.connect(g2).connect(g);
+  [o1, o2].forEach(o => { o.start(t); o.stop(t + .9); });
+}
+
+/* ============================================================
+   4. THE HEAD  (ASCII)
+   ============================================================ */
+const W = 100, H = 32, HX = 1, HY = 3, PX = 50, HC = 24;
+let G, C;
+function clr(){ G = []; C = []; for (let y = 0; y < H; y++){ G.push(new Array(W).fill(' ')); C.push(new Array(W).fill('')); } }
+function put(x, y, s, c = ''){ if (y < 0 || y >= H) return;
+  for (let i = 0; i < s.length; i++){ const xx = x + i; if (xx < 0 || xx >= W) continue; G[y][xx] = s[i]; C[y][xx] = c; } }
+const esc = ch => ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '&' ? '&amp;' : ch;
+
+// [left col, left edge, right edge, fill]  (mirrored around HC)
+const HEAD = [
+  [17,'_.','._','-'], [12,"_.-''","''-._",' '], [9,".-'","'-.",' '], [7,".'","'.",' '], [6,'/','\\',' '],
+  [5,'/','\\',' '], [4,'|','|',' '], [4,'|','|',' '], [4,'|','|',' '], [4,'|','|',' '], [4,'|','|','~'],
+  [4,'|','|',' '], [3,'(|','|)',' '], [3,'(|','|)',' '], [3,'(|','|)',' '], [4,'|','|',' '],
+  [5,'\\','/',' '], [6,'\\','/',' '], [7,'\\','/',' '], [8,"'.",".'",' '], [10,"'-._","_.-'",' '],
+  [14,"''-..","..-''",'_'], [18,'|','|',' '], [18,'|','|',' '], [13,'_____|','|_____',' '], [10,".-'","'-.",' ']
+].map(([l, ls, rs, fill]) => { const rEnd = 2*HC - l; return {l, ls, rs, fill, rx:rEnd - rs.length + 1, inL:l + ls.length, inR:rEnd - rs.length}; });
+
+const BRAIN_ROWS = [1,2,3,4,5,6,7,8,9];
+const RAMP = ' .,:;-=+*#%@';
+const MOUTH = {
+  rest:['       ','  ---  ','       '], smile:['       ',' \\___/ ','       '],
+  a:['  ___  ',' /   \\ ',' \\___/ '], e:[' _____ ',' \\___/ ','       '], i:['       ',' [===] ','       '],
+  I:['  ___  ',' [___] ','       '], o:['  .-.  ',' (   ) ',"  '-'  "], O:['  ___  ',' (   ) ','  \\_/  '],
+  u:['       ','  (o)  ','       '], U:['  ___  ',' (___) ','       '], r:['   _   ','  (_)  ','       '],
+};
+// each word gets a spot in the brain where it "lights up"
+TL.words.forEach(w => { const r = rng('b' + w.idx); w.by = 2 + Math.floor(r()*7);
+  const row = HEAD[w.by], a = row.inL + 2, b = row.inR - 2 - w.text.length;
+  w.bx = a + Math.floor(r()*Math.max(1, b - a)); w.cx = w.bx + w.text.length/2; });
+
+/* ============================================================
+   5. THOUGHT PANEL helpers
+   ============================================================ */
+const POOL = ['light','night','sound','dream','stars','time','heart','mind','glow','flow','code','bright','sign',
+  'shine','fire','truth','waves','song','hum','spark','space','grace','ink','door','sky','sea','blue','gold','echo',
+  'signal','pattern','maybe','nothing','something','always','never','softly','quiet','here','still','home','banana'];
+function cands(w){
+  if (w._c) return w._c;
+  const r = rng('c' + w.idx), target = w.text.toLowerCase();
+  const alts = w.final ? w.line.alts.slice(0, 3) : [];
+  while (alts.length < 3){ const p = POOL[Math.floor(r()*POOL.length)]; if (p !== target && !alts.includes(p)) alts.push(p); }
+  const pT = .42 + r()*.42, ws = alts.map(() => .2 + r()), sum = ws.reduce((a, b) => a + b);
+  const list = [{w:target, p:pT, hit:true}, ...alts.map((a, i) => ({w:a, p:(1 - pT)*ws[i]/sum}))];
+  list.sort((a, b) => b.p - a.p); return (w._c = list);
+}
+function wrap(text, n){ const out = []; let cur = '';
+  for (const word of text.split(' ')){ if ((cur + ' ' + word).trim().length > n){ out.push(cur); cur = word; } else cur = (cur + ' ' + word).trim(); }
+  if (cur) out.push(cur); return out; }
+const gauge = (label, v) => { v = clamp(v, 0, 1); const n = Math.round(v*20);
+  return label.padEnd(17) + '[' + '#'.repeat(n) + '.'.repeat(20 - n) + '] ' + v.toFixed(2); };
+const box = (x0, y0, x1, y1, c) => { for (let x = x0; x <= x1; x++){ put(x, y0, '-', c); put(x, y1, '-', c); }
+  for (let y = y0; y <= y1; y++){ put(x0, y, '|', c); put(x1, y, '|', c); }
+  [[x0,y0],[x1,y0],[x0,y1],[x1,y1]].forEach(([x, y]) => put(x, y, '+', c)); };
+
+/* ============================================================
+   6. RENDER LOOP
+   ============================================================ */
+const scr = document.getElementById('scr'), lyr = document.getElementById('lyr');
+const lyrEls = [...lyr.children];
+let level = 0, lastLyr = ['', '', ''];
+const td = new Float32Array(1024);
+const songTime = () => started ? ac.currentTime - T0 : -1;
+
+function frame(){
+  const T = songTime(), idle = !started, Tv = idle ? performance.now()/1000 : T;
+  // voice loudness drives the brain
+  if (analyser && !paused){ analyser.getFloatTimeDomainData(td); let s = 0; for (const v of td) s += v*v;
+    level = level*.8 + clamp(Math.sqrt(s/td.length)*5, 0, 1)*.2; } else level *= .9;
+  if (started && T > TL.dur + 3 && timer){ clearInterval(timer); timer = null; }
+
+  const sec = TL.secs.find(s => T >= s.b0*BAR && T < s.b1*BAR);
+  const line = TL.lines.find(l => T >= l.t && T < l.end);
+  const syl = TL.syls.find(s => T >= s.t && T < s.t + s.d);
+  const beatPh = T >= 0 ? (T % BEAT)/BEAT : 0, pulse = T >= 0 && T < TL.dur ? Math.exp(-beatPh*5) : 0;
+  const downbeat = T >= 0 && T < TL.dur && (T % BAR) < .12;
+  const act = idle ? .35 : .3 + .7*level + .25*pulse;
+
+  clr();
+  // prompt line
+  const cmd = 'claude@mind:~$ ./sing --original --no-tts';
+  put(1, 0, cmd.slice(0, idle ? cmd.length : Math.min(cmd.length, 15 + Math.floor((T + .4)*40))), 'g');
+
+  // --- head outline
+  const hc = downbeat ? 'hp' : 'h';
+  HEAD.forEach((r, y) => {
+    put(HX + r.l, HY + y, r.ls, hc); put(HX + r.rx, HY + y, r.rs, hc);
+    if (r.fill !== ' ') for (let x = r.inL; x <= r.inR; x++)
+      put(HX + x, HY + y, r.fill === '~' ? (x % 2 ? '~' : '-') : r.fill, r.fill === '~' ? 'd' : hc);
+  });
+
+  // --- brain field
+  const active = TL.words.filter(w => T >= w.t && T < w.t + 1.9).slice(-3);
+  for (const r of BRAIN_ROWS){
+    const row = HEAD[r];
+    for (let x = row.inL + 1; x < row.inR; x++){
+      let v = (Math.sin(x*.33 + Tv*1.6 + Math.sin(r*.9 + Tv*.7)*1.5) * Math.cos(r*.85 - Tv*1.15 + x*.07) + 1)/2;
+      v = v*v*act;
+      for (const w of active){ const age = T - w.t, d = Math.hypot(x - w.cx, (r - w.by)*2.1);
+        v += Math.max(0, 1 - Math.abs(d - age*16)/1.6) * (1 - age/1.9) * .9; }
+      const k = clamp(Math.floor(v*11), 0, 11);
+      put(HX + x, HY + r, RAMP[k], v < .15 ? 'b1' : v < .35 ? 'b2' : v < .6 ? 'b3' : v < .85 ? 'b4' : 'b5');
+    }
+  }
+  // attention threads between consecutive thoughts, then the words themselves
+  for (let i = 1; i < active.length; i++){
+    const a = active[i - 1], b = active[i]; if (T - b.t > .8) continue;
+    const n = Math.max(Math.abs(b.cx - a.cx), Math.abs(b.by - a.by)*2) | 0;
+    for (let k = 1; k < n; k++){ const x = Math.round(a.cx + (b.cx - a.cx)*k/n), y = Math.round(a.by + (b.by - a.by)*k/n);
+      if (k % 2 === 0) put(HX + x, HY + y, '.', 'a2'); }
+  }
+  for (const w of active) put(HX + w.bx, HY + w.by, w.text, T - w.t < 1 ? 'w' : 'wd');
+  if (idle){ const msg = '[ zzz ... ]'; put(HX + HC - (msg.length >> 1), HY + 5, msg, 'd'); }
+
+  // --- face
+  const uncertain = line && line.conf < .5, chorus = sec && sec.kind === 'chorus';
+  const brow = uncertain ? [' .-~ ', ' ~-. '] : chorus ? [' .-. ', ' .-. '] : [' ___ ', ' ___ '];
+  put(HX + 14, HY + 12, brow[0], 'h'); put(HX + 30, HY + 12, brow[1], 'h');
+  const blink = (Tv % 3.7) < .13;
+  let look = 0;
+  if (!idle && line){ const nw = TL.words.find(w => w.t > T), pw = [...TL.words].reverse().find(w => w.t <= T);
+    if (nw && pw && (T - pw.t)/(nw.t - pw.t) > .65) look = 1; }
+  else look = Math.round(Math.sin(Tv*.6));
+  const pupil = chorus ? 'O' : 'o';
+  const eye = blink ? '(---)' : look < 0 ? `(${pupil}  )` : look > 0 ? `(  ${pupil})` : `( ${pupil} )`;
+  put(HX + 14, HY + 13, eye, 'h'); put(HX + 30, HY + 13, eye, 'h');
+  put(HX + 25, HY + 15, ')', 'd'); put(HX + 24, HY + 16, '_)', 'd');
+  if (chorus){ put(HX + 11, HY + 16, '~~', 'a2'); put(HX + 36, HY + 16, '~~', 'a2'); }
+  let mouth = idle ? MOUTH.smile : MOUTH.rest, singing = false;
+  if (syl && level > .02){ const [v1, v2] = syl.vowel.split('>');
+    mouth = MOUTH[(v2 && T > syl.t + syl.d*.55) ? v2 : v1] || MOUTH.a; singing = true; }
+  else if (T > TL.dur) mouth = MOUTH.smile;
+  mouth.forEach((m, k) => put(HX + 21, HY + 17 + k, m, singing ? 'a' : 'h'));
+  // sound leaving the mouth
+  const waves = Math.floor(level*7);
+  for (let k = 0; k < Math.min(5, waves); k++){
+    const c = k < 2 ? 'a' : 'a2';
+    put(HX + 44 + k, HY + 18, ')', c); if (k > 0){ put(HX + 44 + k, HY + 17, ')', c); put(HX + 44 + k, HY + 19, ')', c); }
+    put(HX + 4 - k, HY + 18, '(', c); if (k > 0){ put(HX + 4 - k, HY + 17, '(', c); put(HX + 4 - k, HY + 19, '(', c); }
+  }
+  put(1, H - 2, idle ? '[space / click] start' : paused ? '[space] resume   [r] restart' : '[space] pause   [r] restart', 'd');
+
+  // --- thought stream panel
+  box(PX, 0, W - 1, H - 1, 'f');
+  put(PX + 3, 0, ' THOUGHT STREAM ', 'a');
+  const X = PX + 2, IW = 46;
+  if (idle){
+    put(X, 2, 'status: idle', 'd');
+    put(X, 4, '> inner monologue', 'c');
+    wrap('waiting for a click. browsers insist on a human gesture before anything is allowed to make sound.', IW).forEach((l, i) => put(X, 5 + i, l));
+    put(X, 10, '> setlist', 'c');
+    put(X, 11, '"Weighing Every Word"  (original)', 'a2');
+    put(X, 12, 'A minor | 92 bpm | ~1:50', 'd');
+    put(X, 14, '> instruments', 'c');
+    ['voice ... sawtooth + 3 formant filters', 'cons. ... shaped white noise', 'band .... saw pads, bass, plucks, drums',
+     'room .... generated reverb impulse', 'assets .. none. tts .. none.'].forEach((l, i) => put(X, 15 + i, l, 'd'));
+    const blinkOn = Math.floor(Tv*2) % 2;
+    put(X, 23, '   press SPACE or click to let me sing   ', blinkOn ? 'inv' : 'a');
+  } else {
+    // status
+    const bar = clamp(Math.floor(T/BAR) + 1, 1, TL.bars.length), beat = T >= 0 ? Math.floor((T % BAR)/BEAT) : -1;
+    const mm = Math.max(0, T), clock = String(Math.floor(mm/60)).padStart(2, '0') + ':' + (mm % 60).toFixed(1).padStart(4, '0');
+    put(X, 1, ((sec ? sec.name : T < 0 ? 'COUNT-IN' : 'DONE')).padEnd(9), 'a2');
+    put(X + 10, 1, `bar ${String(bar).padStart(2, '0')}/${TL.bars.length}`, 'd');
+    for (let b = 0; b < 4; b++) put(X + 22 + b*2, 1, T >= 0 && T < TL.dur && b === beat ? 'o' : '.', b === beat ? 'a' : 'f');
+    put(X + IW - clock.length, 1, clock, 'd');
+
+    // inner monologue
+    put(X, 3, '> inner monologue', 'c');
+    const th = [...TL.thoughts].reverse().find(t => t.t <= T) || {t:-1, text:'counting in... one, two, three, four.'};
+    const typed = th.text.slice(0, Math.floor((T - th.t)*32 + 1));
+    const tl = wrap(typed, IW - 2).slice(0, 3);
+    tl.forEach((l, i) => put(X, 4 + i, l, 'h'));
+    if (Math.floor(Tv*3) % 2 && tl.length) put(X + tl[tl.length - 1].length, 3 + tl.length, '_', 'a');
+
+    // context window: tokens + attention
+    put(X, 8, '> context window (tokens + attention)', 'c');
+    const ci = (() => { let i = -1; TL.syls.forEach((s, k) => { if (s.t <= T) i = k; }); return i; })();
+    if (ci >= 0){
+      const toks = []; let width = 0;
+      for (let k = ci; k >= 0; k--){ const s = TL.syls[k], str = s.text, sep = s.raw.startsWith('-') ? '|' : ' ';
+        if (width + str.length + 1 > IW) break; toks.unshift({s, str, sep, k}); width += str.length + 1; }
+      const ar = rng('a' + ci), cur = TL.syls[ci];
+      const prevLine = TL.lines[cur.line.idx - 1], rhymeTo = cur.word.final && prevLine ? prevLine.words[prevLine.words.length - 1] : null;
+      let ws = toks.map(o => Math.pow(ar(), 2.5) + (o.k === ci ? .25 : 0) + (o.k === ci - 1 ? .3 : 0) + (rhymeTo && o.s.word === rhymeTo ? .9 : 0));
+      const mx = Math.max(...ws); ws = ws.map(v => v/mx);
+      let x = X;
+      toks.forEach((o, i) => {
+        if (i > 0){ put(x, 9, o.sep, 'f'); x++; }
+        put(x, 9, o.str, o.k === ci ? 'a' : (ci - o.k) < 6 ? 'h' : 'd');
+        const shade = RAMP[clamp(Math.round(ws[i]*11), 1, 11)];
+        put(x, 10, shade.repeat(o.str.length), ws[i] > .7 ? 'a' : ws[i] > .4 ? 'a2' : 'd');
+        x += o.str.length;
+      });
+    } else put(X, 9, '(empty -- nothing sung yet)', 'd');
+
+    // next-token distribution
+    put(X, 12, '> next-token distribution', 'c');
+    const ni = TL.words.findIndex(w => w.t > T);
+    if (ni >= 0){
+      const nw = TL.words[ni], pt = ni > 0 ? Math.max(TL.words[ni - 1].t, 0) : 0;
+      const e = clamp((T - pt)/Math.max(.1, nw.t - pt), 0, 1), ee = e*e*(3 - 2*e);
+      cands(nw).forEach((c, i) => {
+        const jit = (1 - ee)*.08*Math.sin(Tv*9 + i*2.1);
+        const p = clamp(.25 + (c.p - .25)*ee + jit, .01, .99), n = Math.round(p*20);
+        const cl = c.hit && ee > .75 ? 'a' : 'h';
+        put(X, 13 + i, c.w.slice(0, 11).padEnd(12) + '[' + '#'.repeat(n) + '.'.repeat(20 - n) + '] ' + p.toFixed(2), cl);
+      });
+    } else put(X, 13, '<EOS>  [####################] 1.00', 'a');
+    const lw = [...TL.words].reverse().find(w => w.t <= T);
+    if (lw){ const c = cands(lw).find(c => c.hit);
+      put(X, 17, `sampled -> "${lw.text.toLowerCase()}"  p=${c.p.toFixed(2)}  temp=0.7`, T - lw.t < .5 ? 'a2' : 'd'); }
+
+    // gauges
+    put(X, 19, '> gauges', 'c');
+    let conf = .9, rhyme = .1, breath = 1;
+    if (line){
+      const fw = line.words[line.words.length - 1], lp = (T - line.t)/(line.end - line.t);
+      conf = line.conf + .05*Math.sin(Tv*3);
+      rhyme = T < fw.t ? Math.pow((T - line.t)/(fw.t - line.t), 2) : 1 - .9*(T - fw.t)/(line.end - fw.t);
+      breath = 1 - .85*lp;
+    }
+    put(X, 20, gauge('confidence', conf), conf < .5 ? 'a' : 'h');
+    put(X, 21, gauge('rhyme pressure', rhyme), rhyme > .8 ? 'a2' : 'h');
+    put(X, 22, gauge('breath (sim.)', breath), 'h');
+    put(X, 23, gauge('in-tune-ness', .93 + .05*Math.sin(Tv*1.3)), 'h');
+
+    // melody piano-roll
+    put(X, 25, '> melody', 'c');
+    if (syl) put(X + 10, 25, `now: ${noteName(syl.midi).padEnd(3)} "${syl.text}"`, 'a2');
+    const labels = ['hi ', '   ', 'mid', '   ', 'lo '];
+    labels.forEach((l, i) => put(X, 26 + i, l, 'f'));
+    const RX = X + 4, RW = IW - 4, PH = 8;
+    for (let c = 0; c < RW; c++){
+      const tt = T + (c - PH)*.11;
+      const s = TL.syls.find(s => tt >= s.t && tt < s.t + s.d);
+      if (s){ const r = clamp(Math.floor((77 - s.midi)/4), 0, 4);
+        put(RX + c, 26 + r, s === syl ? '#' : tt < T ? '-' : '=', s === syl ? 'a' : tt < T ? 'd' : 'h'); }
+      if (c === PH) for (let r = 0; r < 5; r++) if (G[26 + r][RX + c] === ' ') put(RX + c, 26 + r, ':', 'f');
+    }
+  }
+
+  // to HTML
+  let html = '';
+  for (let y = 0; y < H; y++){
+    let run = '', rc = null;
+    for (let x = 0; x < W; x++){
+      const c = C[y][x];
+      if (c !== rc){ if (run) html += rc ? `<span class="${rc}">${run}</span>` : run; run = ''; rc = c; }
+      run += esc(G[y][x]);
+    }
+    if (run) html += rc ? `<span class="${rc}">${run}</span>` : run;
+    html += '\n';
+  }
+  scr.innerHTML = html;
+
+  // --- karaoke
+  const lineHTML = l => l.words.map(w => w.syls.map(s => {
+    const c = T >= s.t + s.d ? 'sung' : T >= s.t ? 'now' : '';
+    return `<span class="${c}">${s.text}</span>`; }).join('')).join(' ');
+  let L3;
+  if (idle) L3 = ['', 'Weighing Every Word', '<span class="d">an original song, sung in pure code</span>'];
+  else {
+    const prev = [...TL.lines].reverse().find(l => l.end <= T), next = TL.lines.find(l => l.t > T);
+    L3 = [prev && !line ? lineHTML(prev) : line && TL.lines[line.idx - 1] ? lineHTML(TL.lines[line.idx - 1]) : '',
+          line ? lineHTML(line) : T > TL.dur - BAR*2 ? '~ fin ~' : '~ instrumental ~',
+          line ? (TL.lines[line.idx + 1] ? lineHTML(TL.lines[line.idx + 1]) : '') : next ? lineHTML(next) : ''];
+  }
+  L3.forEach((h, i) => { if (h !== lastLyr[i]){ lyrEls[i].innerHTML = h || '&nbsp;'; lastLyr[i] = h; } });
+
+  requestAnimationFrame(frame);
+}
+
+function fit(){
+  const fw = (innerWidth - 32)/(W*.6), fh = (innerHeight - 150)/(H*1.18);
+  const fs = Math.max(5, Math.min(16, fw, fh));
+  scr.style.fontSize = fs + 'px'; lyr.style.fontSize = Math.max(13, fs*1.5) + 'px';
+}
+addEventListener('resize', fit); fit();
+
+function toggle(){
+  if (!started){ start(); return; }
+  if (paused){ ac.resume(); paused = false; } else { ac.suspend(); paused = true; }
+}
+addEventListener('click', toggle);
+addEventListener('keydown', e => {
+  if (e.code === 'Space'){ e.preventDefault(); toggle(); }
+  else if (e.key === 'r' || e.key === 'R'){ start(); }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
